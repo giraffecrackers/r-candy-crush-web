@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0, minimal-ui, shrink-to-fit=no, viewport-fit=cover">
+	<meta name="apple-mobile-web-app-capable" content="yes">
+	<!-- The above 4 meta tags *must* come first in the head; any other head content must come *after* these tags -->
+
+
+	<link rel="preload" as="fetch" crossorigin href="archive/archive_files.json">
+	<link rel="preload" as="fetch" crossorigin href="Swapchi_wasm.js">
+	<link rel="preload" as="fetch" crossorigin href="Swapchi.wasm">
+
+	<title>Swapchi</title>
+	<style type='text/css'>
+	html, body {
+		width: 100%;
+		height: 100%;
+	}
+
+	/* the page around the game: a darker take on the game's background, with the same faint candy pattern */
+	body {
+		position: fixed; /* Prevent overscroll */
+		margin: 0;
+		padding: 0;
+		overflow: hidden;
+		background-color: #2b2160;
+		background-image:
+			url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='192' height='192' fill='white' fill-opacity='0.06'%3E%3Ccircle cx='48' cy='48' r='14'/%3E%3Cpath d='M144 31l17 17-17 17-17-17z'/%3E%3Ccircle cx='96' cy='144' r='11'/%3E%3Cpath d='M87 144l-14-10v20zM105 144l14-10v20z'/%3E%3Ccircle cx='0' cy='144' r='14'/%3E%3Ccircle cx='192' cy='144' r='14'/%3E%3C/svg%3E"),
+			linear-gradient(#2e2366, #15325a);
+		background-attachment: fixed;
+	}
+
+	/* the frame: placed and sized by resize_window_callback below */
+	.canvas-app-container {
+		position: absolute;
+		overflow: hidden;
+		background: linear-gradient(#5842a8, #2668aa);
+	}
+
+	/* border-radius alone doesn't clip a WebGL canvas (it is drawn on its own layer), so the inner container clips it
+	   with clip-path, plus a mask for older Safari; the outer one keeps the radius for its shadow */
+	.framed, .framed #canvas-container {
+		border-radius: 28px;
+	}
+
+	.framed #canvas-container {
+		clip-path: inset(0 round 28px);
+		-webkit-mask-image: -webkit-radial-gradient(white, black);
+		isolation: isolate;
+	}
+
+	.canvas-app-container.framed {
+		box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.15), 0 24px 60px rgba(0, 0, 0, 0.5);
+	}
+
+	.canvas-app-container:-webkit-full-screen {
+		/* Auto width and height in Safari/Chrome fullscreen. */
+		width: auto;
+		height: auto;
+	}
+
+	#canvas {
+		outline: none;
+		border: 0;
+		width: 100%;
+		height: 100%;
+		vertical-align: bottom;
+	}
+
+	#canvas-container {
+		position: relative;
+		overflow: hidden;
+		width: 100%;
+		height: 100%;
+	}
+
+	canvas:focus, canvas:active {
+		outline: none;
+		border: 0;
+		ie-dummy: expression(this.hideFocus=true);
+		-moz-outline-style: none;
+	}
+
+	/* the loading bar (added by dmloader.js), along the bottom of the frame */
+	.canvas-app-progress {
+		position: absolute;
+		left: 15%;
+		right: 15%;
+		bottom: 12%;
+		height: 10px;
+		border-radius: 5px;
+		overflow: hidden;
+		background-color: rgba(255, 255, 255, 0.2);
+	}
+
+	.canvas-app-progress-bar {
+		height: 10px;
+		border-radius: 5px;
+		background-color: #ffffff;
+		transition: transform 1s ease;
+		transform-origin: left;
+		transform: scaleX(1.0);
+	}
+
+	.message {
+		margin: 2em;
+		color: #ffffff;
+		font-family: sans-serif;
+	}
+
+	.message a {
+		color: #ffd75a;
+	}
+
+	body, div {
+		-webkit-tap-highlight-color: rgba(0,0,0,0);
+		-webkit-touch-callout: none;
+		-webkit-user-select: none;
+		-khtml-user-select: none;
+		-moz-user-select: none;
+		-ms-user-select: none;
+		user-select: none;
+	}
+	</style>
+</head>
+
+<body>
+
+	<div id="app-container" class="canvas-app-container">
+		<div id="running-from-file-warning" class="message" style="display: none;">
+			<h1>Running from local file ⚠️</h1>
+			<p>It seems like you have opened this file by double-clicking on it. In order to test your build in a browser <b>you need to load this file from a web server</b>. You can either upload this file and the rest of the files from a Defold HTML5 bundle to a web hosting service OR host them using a local web server on your home network.</p>
+			<p><a href="https://defold.com/manuals/html5/#testing-html5-build" target="_blank">Learn more about running a local web server in the Defold HTML5 manual</a>.</p>
+		</div>
+		<div id="webgl-not-supported" class="message" style="display: none;">
+			<h1>WebGL not supported ⚠️</h1>
+			<p>WebGL is not supported by your browser - visit <a href="https://get.webgl.org/">https://get.webgl.org/</a> to learn more.</p>
+		</div>
+		<div id="canvas-container" class="canvas-app-canvas-container">
+			<canvas id="canvas" class="canvas-app-canvas" tabindex="1" width="640" height="1136"></canvas>
+		</div>
+	</div>
+	<!-- -->
+	<script>
+		// Fallback to make sure globalThis is available when running in an old
+		// browser (available from Chome 71)
+		// https://github.com/defold/defold/issues/10503
+		if (typeof globalThis === 'undefined') {
+			window.globalThis = window;
+		}
+	</script>
+	<script id='engine-loader' type='text/javascript' src="dmloader.js"></script>
+	<script id='engine-setup' type='text/javascript'>
+		// On a phone the game fills the screen, keeping its shape between a tall phone (9:19.5) and the design screen;
+		// on its side it fits the height. Anywhere else (a desktop window, a tablet) it sits in a framed box of the
+		// design screen's shape, with a margin, so resizing the window only scales it.
+		var PHONE_MIN_RATIO = 9 / 19.5;
+		var DESIGN_RATIO = 640 / 1136;
+		var FRAME_MARGIN = 24;
+		var PHONE_MAX_SIDE = 600; // a touch screen whose shorter side is under this is a phone
+
+		CUSTOM_PARAMETERS.resize_window_callback = function() {
+			var is_iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+			// Hack for iOS when exit from Fullscreen mode
+			if (is_iOS) {
+				window.scrollTo(0, 0);
+			}
+
+			var innerWidth = window.innerWidth;
+			var innerHeight = window.innerHeight;
+			if (CUSTOM_PARAMETERS.resize_window_prev_inner_width == innerWidth &&
+				CUSTOM_PARAMETERS.resize_window_prev_inner_height == innerHeight)
+			{
+				return;
+			}
+			CUSTOM_PARAMETERS.resize_window_prev_inner_width = innerWidth;
+			CUSTOM_PARAMETERS.resize_window_prev_inner_height = innerHeight;
+
+			var touch = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+			var phone = touch && Math.min(innerWidth, innerHeight) < PHONE_MAX_SIDE;
+			var framed = !phone;
+			var width, height;
+			if (phone) {
+				// upright: fill the screen (background above and below only on a screen taller than 9:19.5);
+				// on its side: the design screen's shape, background on the sides
+				var ratio = innerWidth > innerHeight ? DESIGN_RATIO : Math.max(PHONE_MIN_RATIO, innerWidth / innerHeight);
+				width = Math.min(innerWidth, innerHeight * ratio);
+				height = width / ratio;
+			} else {
+				var margin = Math.min(FRAME_MARGIN, innerWidth * 0.04, innerHeight * 0.04);
+				width = Math.min(innerWidth - 2 * margin, (innerHeight - 2 * margin) * DESIGN_RATIO);
+				height = width / DESIGN_RATIO;
+			}
+			width = Math.min(innerWidth, Math.round(width));
+			height = Math.min(innerHeight, Math.round(height));
+
+			var app_container = document.getElementById('app-container');
+			app_container.classList.toggle('framed', framed);
+			app_container.style.width = width + "px";
+			app_container.style.height = height + "px";
+			app_container.style.left = Math.floor((innerWidth - width) / 2) + "px";
+			app_container.style.top = Math.floor((innerHeight - height) / 2) + "px";
+
+			var dpi = window.devicePixelRatio || 1;
+			var game_canvas = document.getElementById('canvas');
+			game_canvas.width = Math.floor(width * dpi);
+			game_canvas.height = Math.floor(height * dpi);
+		};
+	</script>
+	<script id='engine-start' type='text/javascript'>
+		var runningFromFileWarning = document.getElementById("running-from-file-warning");
+		if (window.location.href.startsWith("file://")) {
+			runningFromFileWarning.style.display = "block";
+		}
+		else {
+			EngineLoader.load("canvas", "Swapchi");
+			runningFromFileWarning.parentNode.removeChild(runningFromFileWarning);
+		}
+	</script>
+</body>
+</html>
